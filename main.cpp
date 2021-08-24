@@ -99,23 +99,35 @@ void sendForward(pcap_t *handle, Mac myMac, libnet_ethernet_hdr *eth, libnet_ipv
     headers.eth_.ether_type = eth->ether_type;
 
     memcpy(&(headers.ip_), ip, sizeof(*ip));
+    headers.ip_.ip_len = htons(sizeof(headers.ip_) + sizeof(headers.tcp_));
+
+    uint16_t *buffer = reinterpret_cast<uint16_t*>(&(headers.ip_));
+    buffer[5] = 0x0000;
+    headers.ip_.ip_sum = Checksum(buffer, sizeof(libnet_ipv4_hdr));
 
     headers.tcp_.th_sport = tcp->th_sport;
     headers.tcp_.th_dport = tcp->th_dport;
     headers.tcp_.th_seq = htonl(ntohl(tcp->th_seq) + ntohs(ip->ip_len) - (ip->ip_hl + tcp->th_off) * 4);
     headers.tcp_.th_ack = tcp->th_ack;
-    headers.tcp_.th_off = tcp->th_off;
+    headers.tcp_.th_off = (uint8_t)(sizeof(headers.tcp_)/4);
     headers.tcp_.th_flags = 0b00000100;
+    headers.tcp_.th_urp = 0;
+    headers.tcp_.th_x2 = 0;
+    headers.tcp_.th_sum = 0;
+    headers.tcp_.th_win = tcp->th_win;
 
     Pseudohdr pseudo;
     pseudo.dip_ = headers.ip_.ip_dst;
     pseudo.sip_ = headers.ip_.ip_src;
-    pseudo.protocol_ = headers.ip_.ip_p;
     pseudo.reserved_ = 0;
-    pseudo.tcplen_ = (uint8_t)(sizeof(*tcp)/4);
+    pseudo.protocol_ = headers.ip_.ip_p;
+    pseudo.tcplen_ = htons(headers.tcp_.th_off * 4);
 
-    uint16_t *buffer = reinterpret_cast<uint16_t*>(&pseudo);
-    headers.tcp_.th_sum = Checksum(buffer, sizeof(Pseudohdr));
+    PseudoTcpData pseuTcp;
+    pseuTcp.pseudo_ = pseudo;
+    pseuTcp.tcp_ = headers.tcp_;
+    buffer = reinterpret_cast<uint16_t*>(&pseuTcp);
+    headers.tcp_.th_sum = Checksum(buffer, sizeof(Pseudohdr) + sizeof(pseuTcp.tcp_));
 
     int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&headers), sizeof(EthIpTcp));
     if (res != 0) {
@@ -125,7 +137,7 @@ void sendForward(pcap_t *handle, Mac myMac, libnet_ethernet_hdr *eth, libnet_ipv
 
 void sendBackward(pcap_t *handle, Mac myMac, libnet_ethernet_hdr *eth, libnet_ipv4_hdr *ip, libnet_tcp_hdr *tcp){
     EthIpTcp headers;
-    uint8_t tcpData[] = "HTTP/1.0 302 Redirect\r\nLocation: http://warning.or.kr\r\n";
+    uint8_t tcpData[] = "HTTP/1.0 302 Redirect\r\nLocation: http://warning.or.kr\r\n\r\n";
 
     memcpy(headers.eth_.ether_dhost, eth->ether_shost, sizeof(Mac));
     memcpy(headers.eth_.ether_shost, (uint8_t *)myMac, sizeof(Mac));
