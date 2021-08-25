@@ -80,7 +80,7 @@ uint16_t Checksum(uint16_t *buffer, int size){
     unsigned long cksum=0;
 
     while(size >1) {
-        cksum+=*buffer++;
+        cksum+=ntohs(*buffer++);
         size -=sizeof(unsigned short);
     }
 
@@ -88,7 +88,7 @@ uint16_t Checksum(uint16_t *buffer, int size){
         cksum += *(unsigned short*)buffer;
     cksum = (cksum >> 16) + (cksum & 0xffff);
     cksum += (cksum >>16);
-    return (unsigned short)(~cksum);
+    return htons((unsigned short)(~cksum));
 }
 
 
